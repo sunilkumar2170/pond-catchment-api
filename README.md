@@ -1,18 +1,57 @@
-# AI-based Village Pond Planning System
+<div align="center">
 
-A backend web application that analyzes contour and elevation data (in **KML/KMZ** format) to identify optimal pond locations using local depression detection, D8 surface flow routing, and catchment area delineation.
+# 🏞️ AI-based Village Pond Planning System
 
-**Course:** Computer System Design (CSD)
-**Status:** Phase 2 (Backend API) ✅
-**Author:** Sunil Kumar (ID: `12342170`) — IIT Bhilai
+**Automated pond-site selection from contour data using terrain interpolation, D8 flow routing, and catchment delineation.**
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Status](https://img.shields.io/badge/Status-Phase%202%20(Backend%20API)-brightgreen)]()
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live Backend](https://img.shields.io/badge/Live%20Backend-10.1.75.53%3A3213-blue?logo=fastapi&logoColor=white)](http://10.1.75.53:3213/docs)
+
+**Course:** Computer System Design (CSD) &nbsp;|&nbsp; **Author:** Sunil Kumar (`12342170`) — IIT Bhilai
+
+**🔗 Backend URL:** [`http://10.1.75.53:3213`](http://10.1.75.53:3213/) &nbsp;|&nbsp; **📘 API Docs:** [`http://10.1.75.53:3213/docs`](http://10.1.75.53:3213/docs)
+
+[Live API](#-live-working-backend-endpoints) · [Quick Start](#-quick-start) · [How It Works](#️-how-it-works) · [Tech Stack](#️-tech-stack)
+
+</div>
+
+---
+
+## 📖 Table of Contents
+
+- [Overview](#-overview)
+- [Live Working Backend Endpoints](#-live-working-backend-endpoints)
+- [Project Structure](#-project-structure)
+- [Quick Start](#-quick-start)
+- [API Reference](#-api-reference)
+- [Testing the API](#-testing-the-api)
+- [How It Works](#️-how-it-works)
+- [Tech Stack](#️-tech-stack)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [License](#-license)
+- [Author](#-author)
+
+---
+
+## 🔎 Overview
+
+Village-level pond planning has traditionally relied on manual site surveys. This project automates the process: given nothing but a **contour map exported as KML/KMZ**, the backend reconstructs a pseudo-Digital Elevation Model (DEM), finds the most promising natural depression, and computes exactly how much land area drains into it — giving planners a data-backed pond site and catchment size in seconds.
 
 ---
 
 ## 🌐 Live Working Backend Endpoints
 
-- **Live API Endpoint:** [`http://10.1.75.53:3213/analyzeContour`](http://10.1.75.53:3213/analyzeContour)
-- **Interactive Swagger Docs:** [`http://10.1.75.53:3213/docs`](http://10.1.75.53:3213/docs)
-- **Status Check:** [`http://10.1.75.53:3213/`](http://10.1.75.53:3213/)
+| Endpoint | URL |
+|---|---|
+| **Analyze Contour** | [`http://10.1.75.53:3213/analyzeContour`](http://10.1.75.53:3213/analyzeContour) |
+| **Swagger Docs** | [`http://10.1.75.53:3213/docs`](http://10.1.75.53:3213/docs) |
+| **Health Check** | [`http://10.1.75.53:3213/`](http://10.1.75.53:3213/) |
+
+> ⚠️ This is a local/lab-network IP — reachable only from within the same network as the deployment machine.
 
 ---
 
@@ -50,9 +89,22 @@ pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+The API will be live at `http://localhost:8000`.
+
 ---
 
-## 🧪 Test the API
+## 📡 API Reference
+
+| Method | Route | Description | Body |
+|---|---|---|---|
+| `POST` | `/analyzeContour` | Full pipeline: parses contours, builds DEM, finds pond site, computes catchment | `multipart/form-data` — field `contour_map` or `file` (KML/KMZ) |
+| `POST` | `/findCatchment` | Computes catchment area for a given pond coordinate on an uploaded contour file | `multipart/form-data` + query params |
+| `GET` | `/` | Health/status check | — |
+| `GET` | `/docs` | Interactive Swagger UI | — |
+
+---
+
+## 🧪 Testing the API
 
 ### 1. Using cURL
 
@@ -86,13 +138,41 @@ Open your browser at: `http://localhost:8000/docs`
 
 ## ⚙️ How It Works
 
-1. **Parse KML/KMZ:** Extracts vector contour polylines along with elevation values from XML nodes or decompressed KMZ archives.
-2. **Interpolate Vertices:** Builds a regular continuous elevation grid (pseudo-DEM) using 2D Barycentric linear interpolation (`scipy.interpolate.griddata`).
-3. **Detect Local Minima:** Scans an 8-connected neighborhood kernel to find natural terrain depression sinks.
-4. **Select Pond Site:** Identifies the deepest basin sink across the terrain.
-5. **Compute D8 Flow:** Determines water runoff directions following the steepest descent elevation gradient.
-6. **Delineate Catchment:** Traces all upstream contributing cells draining into the pond via reverse BFS.
-7. **Calculate Area:** Converts contributing cells into geodesic metric area in hectares using latitude-corrected scaling.
+```
+KML/KMZ Contours
+       │
+       ▼
+1. Parse KML/KMZ ─────────► extract polylines + elevation
+       │
+       ▼
+2. Interpolate Vertices ──► build pseudo-DEM (SciPy griddata, barycentric)
+       │
+       ▼
+3. Detect Local Minima ───► 8-connected neighborhood scan for sinks
+       │
+       ▼
+4. Select Pond Site ──────► deepest basin sink on terrain
+       │
+       ▼
+5. Compute D8 Flow ───────► steepest-descent direction per cell
+       │
+       ▼
+6. Delineate Catchment ───► reverse BFS over upstream contributing cells
+       │
+       ▼
+7. Calculate Area ────────► geodesic, latitude-corrected hectares
+       │
+       ▼
+   Pond Site + Catchment Report
+```
+
+1. **Parse KML/KMZ** — Extracts vector contour polylines along with elevation values from XML nodes or decompressed KMZ archives.
+2. **Interpolate Vertices** — Builds a regular continuous elevation grid (pseudo-DEM) using 2D Barycentric linear interpolation (`scipy.interpolate.griddata`).
+3. **Detect Local Minima** — Scans an 8-connected neighborhood kernel to find natural terrain depression sinks.
+4. **Select Pond Site** — Identifies the deepest basin sink across the terrain.
+5. **Compute D8 Flow** — Determines water runoff directions following the steepest descent elevation gradient.
+6. **Delineate Catchment** — Traces all upstream contributing cells draining into the pond via reverse BFS.
+7. **Calculate Area** — Converts contributing cells into geodesic metric area in hectares using latitude-corrected scaling.
 
 ---
 
@@ -103,13 +183,37 @@ Open your browser at: `http://localhost:8000/docs`
 | Backend & API | Python 3, FastAPI, Uvicorn |
 | Data Validation | Pydantic |
 | Geospatial & Parsing | XML ElementTree, ZipFile (KMZ Support) |
-| Grid Interpolation | NumPy, SciPy (griddata) |
+| Grid Interpolation | NumPy, SciPy (`griddata`) |
 | Hydrological Routing | Custom D8 Flow Algorithm, Reverse BFS Graph Traversal |
 
 ---
 
-## 👨‍💻 Author
+## 🗺️ Roadmap
 
-**Sunil Kumar** (ID: `12342170`)
-Department of Computer Science and Engineering, IIT Bhilai
-GitHub: [@sunilkumar2170](https://github.com/sunilkumar2170)
+- [ ] Multi-pond ranking (top-N candidate sites, not just the deepest sink)
+- [ ] Support for raw `.tif`/`.asc` DEM input alongside KML/KMZ
+- [ ] Frontend map viewer (Leaflet/Mapbox) for visualizing pond + catchment overlays
+- [ ] Rainfall-runoff volume estimation (SCS Curve Number method)
+- [ ] Dockerized deployment
+- [ ] Unit tests for parser, interpolation, and flow-routing modules
+
+---
+
+## 🤝 Contributing
+
+Contributions, issues, and feature requests are welcome.
+
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m "Add: your feature"`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
+
+---
+
+
+---
+
+
+
+</div>
