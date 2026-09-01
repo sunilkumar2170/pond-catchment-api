@@ -1,37 +1,36 @@
 # Pond Catchment Analysis API
 
-A backend API that analyzes a contour map (KML format) to identify a suitable pond location and estimate its catchment area — built for automated village pond planning.
+A robust backend API that analyzes a contour map (in **KML** or **KMZ** format), builds a terrain digital elevation model (DEM), identifies the optimal pond location/region, and estimates its contributing catchment area — built for automated rural/village water conservation planning.
 
-## Overview
+---
 
-Given a KML contour map, this API:
-1. Parses contour lines and their elevation values
-2. Builds an interpolated elevation surface (pseudo-DEM) from the scattered contour points
-3. Identifies natural depressions (local minima) as candidate pond locations
-4. Computes flow direction for every grid cell (D8 method)
-5. Traces which cells drain into the selected pond location (catchment delineation via BFS)
-6. Returns the pond location and total catchment area
+## 🚀 API Endpoints
 
-No coordinates, locations, or results are hardcoded — everything is derived from the uploaded contour map, so the same pipeline works on any valid KML contour file.
+### 1. Primary Analysis Route
+- **`POST /analyzeContour`**
+- **`POST /findCatchment`** *(alias)*
 
-## API Endpoint
-
-**POST** `/analyzeContour`
-
-**Request:** `multipart/form-data`
+#### Request Format
+`multipart/form-data`
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `file` | File | KML contour map to analyze |
+|---|---|---|
+| `contour_map` | File | **(Primary)** KML or KMZ contour map file |
+| `file` | File | *(Alternative / Fallback)* KML or KMZ file |
 
-**Response:** `application/json`
+#### Sample Request (cURL)
+```bash
+curl -X POST "http://localhost:8000/analyzeContour" \
+  -F "contour_map=@contours_1m.kml"
+```
 
+#### Sample Response (`application/json`)
 ```json
 {
   "filename": "contours_1m.kml",
   "pond_location": {
-    "longitude": 81.28897840326485,
-    "latitude": 21.244862062343888
+    "longitude": 81.28897840326482,
+    "latitude": 21.24486206234389
   },
   "pond_elevation_m": 268.0,
   "catchment_area_hectares": 4.261316548620606,
@@ -39,54 +38,78 @@ No coordinates, locations, or results are hardcoded — everything is derived fr
 }
 ```
 
-**Error responses:**
-- `400` — uploaded file has no valid/parseable contours
-- `422` — no suitable pond location (local minimum) could be identified from the data
+### 2. Health & Status Route
+- **`GET /`**
+Returns server status and available endpoints.
 
-## Project Structure
+---
+
+## 🛠️ Architectural Approach & Hydrological Modeling
+
+1. **KML / KMZ Ingestion & Parsing (`kml_parser.py`)**:
+   - Supports both uncompressed `.kml` and compressed `.kmz` zip archives.
+   - Robust multi-attribute elevation extraction (reads elevation from `<name>`, `<ExtendedData>`, `<description>`, or 3D coordinate tuples `(lon, lat, elev)`).
+   - Zero hardcoding of geographic coordinates.
+
+2. **Surface Interpolation & Pseudo-DEM (`terrain_processor.py`)**:
+   - Flattens scattered contour polyline vertices into continuous geospatial coordinates $(x, y, z)$.
+   - Constructs a regular elevation grid (DEM) using SciPy's 2D linear barycentric interpolation (`scipy.interpolate.griddata`).
+
+3. **Optimal Pond Site Selection (`catchment_analyzer.py`)**:
+   - Uses an 8-neighborhood local minimum detector to locate natural terrain depressions / sinks.
+   - Selects the deepest, most viable depression as the primary pond outlet point.
+
+4. **D8 Flow Direction & Catchment Delineation (`catchment_analyzer.py`)**:
+   - Computes steepest descent flow vectors for every DEM cell according to standard D8 hydrological flow modeling.
+   - Performs a reverse Breadth-First Search (BFS) starting from the pond sink to trace all contributing upstream cells.
+
+5. **Geodesic Catchment Area Estimation (`catchment_analyzer.py`)**:
+   - Computes cell dimensions in meters using latitude-corrected geodesic scaling ($1^\circ \text{lat} \approx 111\,\text{km}$, $1^\circ \text{lon} \approx 111\,\text{km} \times \cos(\text{latitude})$).
+   - Calculates total contributing area in hectares ($1\,\text{ha} = 10,000\,\text{m}^2$).
+
+---
+
+## 📁 Project Structure
 
 ```
 pond-catchment-api/
-│
-├── main.py                 # FastAPI app and the /analyzeContour route
-├── kml_parser.py            # Parses KML files into (elevation, coordinates) contours
-├── terrain_processor.py     # Builds interpolated elevation grid + slope
-├── catchment_analyzer.py    # Pond location detection, flow direction, catchment trace, area calculation
-├── models.py                 # Pydantic response models
-├── requirements.txt
-└── contours_1m.kml           # Sample contour map used for development/testing
+├── main.py                 # FastAPI application, route handlers, and parameter mapping
+├── kml_parser.py            # KML & KMZ parser with robust elevation extraction
+├── terrain_processor.py     # Grid interpolation & slope computation
+├── catchment_analyzer.py    # Local minima detection, D8 flow routing, and BFS catchment tracing
+├── models.py                # Pydantic response models
+├── requirements.txt         # Dependencies
+├── contours_1m.kml          # Sample contour map for testing
+└── README.md                # Documentation & report
 ```
 
-Each file has a single responsibility, so the pipeline can be extended (e.g. swapping the interpolation method, adding rainfall/runoff estimation in a later phase) without touching unrelated modules.
+---
 
-## Approach
+## 🏃 Running Locally
 
-1. **Parsing** — Each `<Placemark>` in the KML represents one contour line; its elevation is read from the `<name>` tag and its shape from `<coordinates>`.
-2. **Interpolation** — All contour points are flattened into scattered `(x, y, z)` points and interpolated onto a regular grid using `scipy.interpolate.griddata`, producing a continuous elevation surface.
-3. **Pond location** — Every interior grid cell is checked against its 8 neighbors; a cell lower than all of them is a local minimum. The deepest local minimum is chosen as the pond location.
-4. **Flow direction (D8)** — For each cell, the algorithm finds which of its 8 neighbors has the lowest elevation — that's the direction water would flow.
-5. **Catchment delineation** — Starting from the pond location, a breadth-first search walks backward through the flow-direction grid to collect every cell whose water eventually reaches that point.
-6. **Area estimation** — The number of contributing cells is converted from grid units (degrees) to real-world area (hectares) using standard degree-to-meter conversion at the site's latitude.
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Running Locally
+2. **Start the FastAPI server:**
+   ```bash
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
 
-```bash
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+3. **Interactive Swagger API Docs:**
+   Open `http://localhost:8000/docs` in your browser.
 
-API will be available at `http://127.0.0.1:8000/analyzeContour`.
+---
 
-## Testing
+## 🧪 Testing
 
-Tested with the provided sample map (`contours_1m.kml`) as well as an independently generated synthetic contour map with different terrain, confirming the pipeline generalizes to contour maps beyond the provided sample.
+The API was validated with:
+- The standard sample contour map (`contours_1m.kml`).
+- Compressed KMZ archives (`.kmz`).
+- Synthetic contour maps with alternative coordinate formats and elevation levels.
 
-## Tech Stack
+---
 
-- **FastAPI** — API framework
-- **NumPy / SciPy** — grid interpolation, slope, and numerical computation
-- **Pydantic** — response validation and schema
-
-## Author
-
+## 👨‍💻 Author
 Sunil Kumar — B.Tech CSE, IIT Bhilai
