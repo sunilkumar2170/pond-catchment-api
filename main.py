@@ -77,6 +77,15 @@ async def process_contour_file(uploaded_file: UploadFile) -> CatchmentResponse:
                 pass
 
 
+@app.get("/analyzeContour")
+def analyze_contour_info():
+    return {
+        "message": "Pond Catchment API is running successfully",
+        "method": "Use POST to upload a KML/KMZ file",
+        "docs": "/docs"
+    }
+
+
 @app.post("/analyzeContour", response_model=CatchmentResponse)
 async def analyze_contour(
     contour_map: UploadFile = File(None, description="KML/KMZ contour map file"),
@@ -102,4 +111,4 @@ async def find_catchment(
             status_code=400,
             detail="File is required under field 'contour_map' (or 'file')."
         )
-    return await process_contour_file(upload)
+    return await process_contour_file(upload)
