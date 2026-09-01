@@ -4,11 +4,7 @@
 
 **Automated pond-site selection from contour data using terrain interpolation, D8 flow routing, and catchment delineation.**
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Status](https://img.shields.io/badge/Status-Phase%202%20(Backend%20API)-brightgreen)]()
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Live Backend](https://img.shields.io/badge/Live%20Backend-10.1.75.53%3A3213-blue?logo=fastapi&logoColor=white)](http://10.1.75.53:3213/docs)
+
 
 **Course:** Computer System Design (CSD) &nbsp;|&nbsp; **Author:** Sunil Kumar (`12342170`) — IIT Bhilai
 
