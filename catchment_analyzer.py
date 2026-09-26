@@ -1,5 +1,7 @@
 import numpy as np
 from collections import deque
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 
 def find_local_minima(grid_z, margin=5):
@@ -110,3 +112,70 @@ def calculate_catchment_area(catchment_cells, grid_x, grid_y):
     total_area_hectares = total_area_sqm / 10000
 
     return total_area_hectares, total_cells
+
+
+# =====================================================================
+# Water volume estimation using the SCS Curve Number (CN) method.
+# =====================================================================
+
+DEFAULT_ANNUAL_RAINFALL_MM = 1100.0
+DEFAULT_CURVE_NUMBER = 60.0
+
+
+def estimate_water_volume(
+    catchment_area_hectares,
+    rainfall_mm=DEFAULT_ANNUAL_RAINFALL_MM,
+    curve_number=DEFAULT_CURVE_NUMBER
+):
+    S = (25400.0 / curve_number) - 254.0
+    initial_abstraction = 0.2 * S
+
+    if rainfall_mm <= initial_abstraction:
+        runoff_depth_mm = 0.0
+    else:
+        runoff_depth_mm = ((rainfall_mm - initial_abstraction) ** 2) / (rainfall_mm + 0.8 * S)
+
+    catchment_area_sqm = catchment_area_hectares * 10000.0
+    runoff_depth_m = runoff_depth_mm / 1000.0
+    volume_cubic_m = runoff_depth_m * catchment_area_sqm
+
+    return float(runoff_depth_mm), float(volume_cubic_m)
+
+
+# =====================================================================
+# NEW: Catchment polygon (boundary shape) generation.
+# Converts the set of catchment grid cells into a single merged
+# polygon boundary that can be sent to the frontend for map overlay.
+# =====================================================================
+
+def get_catchment_polygon(catchment_cells, grid_x, grid_y):
+    """
+    Converts catchment grid cells into a polygon boundary
+    (a list of [longitude, latitude] coordinate pairs).
+    """
+    cell_width = abs(grid_x[1, 0] - grid_x[0, 0])
+    cell_height = abs(grid_y[0, 1] - grid_y[0, 0])
+
+    cell_polygons = []
+    for row, col in catchment_cells:
+        center_x = grid_x[row, col]
+        center_y = grid_y[row, col]
+
+        x1 = center_x - cell_width / 2
+        x2 = center_x + cell_width / 2
+        y1 = center_y - cell_height / 2
+        y2 = center_y + cell_height / 2
+
+        cell_polygon = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2), (x1, y1)])
+        cell_polygons.append(cell_polygon)
+
+    if not cell_polygons:
+        return []
+
+    catchment_shape = unary_union(cell_polygons)
+
+    if catchment_shape.geom_type == "MultiPolygon":
+        catchment_shape = max(catchment_shape.geoms, key=lambda p: p.area)
+
+    coordinates = list(catchment_shape.exterior.coords)
+    return [[float(x), float(y)] for x, y in coordinates]

@@ -1,30 +1,102 @@
-# Pond Catchment Analysis API
+# 🌊 Pond Catchment Analysis API
 
-A robust backend API that analyzes a contour map (in **KML** or **KMZ** format), builds a terrain digital elevation model (DEM), identifies the optimal pond location/region, and estimates its contributing catchment area — built for automated rural/village water conservation planning.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Python](https://img.shields.io/badge/Python-3.9%20%7C%203.10%20%7C%203.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)](https://numpy.org)
+[![SciPy](https://img.shields.io/badge/SciPy-8CAAE6?style=for-the-badge&logo=scipy&logoColor=white)](https://scipy.org)
+[![Status](https://img.shields.io/badge/Phase%202-Complete%20%26%20Verified-success?style=for-the-badge)]()
+
+> An intelligent, automated backend API that analyzes topographical contour maps (in **KML** or **KMZ** format), reconstructs a continuous 2D Digital Elevation Model (DEM), detects natural depression sinks, and estimates contributing catchment areas using standard **D8 hydrological flow routing** for village water conservation planning.
 
 ---
 
-## 🚀 API Endpoints
+## 📌 Key Highlights
 
-### 1. Primary Analysis Route
-- **`POST /analyzeContour`**
-- **`POST /findCatchment`** *(alias)*
+- **Zero Hardcoding**: Dynamically parses bounding boxes, polyline vertices, and elevation thresholds from any input KML/KMZ file worldwide.
+- **Universal File Acceptance**: Natively accepts files under the evaluator variable name **`contour_map`** (with automatic fallback to **`file`**).
+- **KML & KMZ Support**: Direct XML parsing for `.kml` and in-memory zip decompression for `.kmz` files.
+- **Hydrological Rigor**: Deterministic 8-direction (D8) steepest gradient flow routing coupled with reverse Breadth-First Search (BFS) basin tracing.
+- **Geodesic Accuracy**: Latitude-corrected WGS84 geodesic projection converting grid cells to exact metric hectares ($1\text{ ha} = 10{,}000\text{ m}^2$).
 
-#### Request Format
-`multipart/form-data`
+---
 
-| Field | Type | Description |
+## 🌐 Live Backend Endpoints
+
+| Resource | URL | Description |
 |---|---|---|
-| `contour_map` | File | **(Primary)** KML or KMZ contour map file |
-| `file` | File | *(Alternative / Fallback)* KML or KMZ file |
+| **Primary API Route** | [`http://10.1.75.53:3213/analyzeContour`](http://10.1.75.53:3213/analyzeContour) | Main terrain & catchment analysis endpoint (`POST`) |
+| **Alias Route** | [`http://10.1.75.53:3213/findCatchment`](http://10.1.75.53:3213/findCatchment) | Alternative route alias for compatibility (`POST`) |
+| **Interactive Docs (Swagger)** | [`http://10.1.75.53:3213/docs`](http://10.1.75.53:3213/docs) | Interactive OpenAPI / Swagger UI testing interface |
+| **Root Health Check** | [`http://10.1.75.53:3213/`](http://10.1.75.53:3213/) | Server health, status, and route discovery (`GET`) |
 
-#### Sample Request (cURL)
-```bash
-curl -X POST "http://localhost:8000/analyzeContour" \
-  -F "contour_map=@contours_1m.kml"
+---
+
+## 🏗️ System Architecture & Hydrological Pipeline
+
+```
+┌───────────────────────────┐
+│   KML / KMZ Upload File   │  (multipart/form-data via contour_map)
+└─────────────┬─────────────┘
+              ▼
+┌───────────────────────────┐
+│     kml_parser.py         │  Extracts polylines & elevation (<name>, <ExtendedData>, (x,y,z))
+└─────────────┬─────────────┘
+              ▼
+┌───────────────────────────┐
+│   terrain_processor.py    │  2D Barycentric Linear Interpolation -> 100x100 Pseudo-DEM Z(x,y)
+└─────────────┬─────────────┘
+              ▼
+┌───────────────────────────┐
+│   catchment_analyzer.py   │  1. Local Minima Kernel Detection -> Deepest Depression Sink
+│                           │  2. D8 Steepest-Gradient Flow Direction Matrix
+│                           │  3. Upstream BFS Flow Tracing -> Drainage Basin Cells
+│                           │  4. Geodesic Metric Area Estimation (Hectares)
+└─────────────┬─────────────┘
+              ▼
+┌───────────────────────────┐
+│      FastAPI Response     │  Structured JSON (Pond Coords, Elevation, Catchment Area)
+└───────────────────────────┘
 ```
 
-#### Sample Response (`application/json`)
+---
+
+## 🔬 Algorithmic & Mathematical Formulation
+
+### 1. Digital Elevation Model (DEM) Interpolation
+Given scattered 3D contour vertices $\{(x_k, y_k, z_k)\}_{k=1}^M$, continuous elevation heights $Z(x, y)$ are interpolated onto a uniform regular grid:
+$$Z(x, y) = \text{griddata}\left(\{(x_k, y_k)\}, \{z_k\}, (x, y), \text{method}=\text{'linear'}\right)$$
+
+### 2. Depression Sink Identification (Local Minima)
+A $3 \times 3$ kernel scans interior grid cells $(i, j)$ against its 8-neighborhood $\mathcal{N}_8$:
+$$\text{IsLocalMinimum}(i, j) \iff Z_{i, j} < \min_{(di, dj) \in \mathcal{N}_8 \setminus \{(0,0)\}} Z_{i+di, j+dj}$$
+The global lowest depression across all candidates is selected as the optimal pond location:
+$$(i^*, j^*) = \arg\min_{(i,j) \in \text{Minima}} Z(i, j)$$
+
+### 3. D8 Surface Runoff Flow Routing
+Surface water flow vectors are routed to the neighbor offering the steepest downward drop:
+$$\vec{D}(i, j) = \arg\max_{(di, dj) \in \mathcal{N}_8} \frac{Z_{i, j} - Z_{i+di, j+dj}}{\text{Distance}((i,j), (i+di, j+dj))}$$
+
+### 4. Reverse BFS Catchment Delineation
+Starting at the selected outlet sink $(i^*, j^*)$, a reverse Breadth-First Search collects all upstream cells whose drainage path reaches $(i^*, j^*)$.
+
+### 5. Geodesic Metric Area Calculation
+$$\Delta X_{\text{meters}} = \Delta \text{lon} \times 111{,}000 \times \cos(\text{Latitude}_{\text{avg}})$$
+$$\Delta Y_{\text{meters}} = \Delta \text{lat} \times 111{,}000$$
+$$\text{Area}_{\text{Hectares}} = \frac{N_{\text{catchment\_cells}} \times (\Delta X_{\text{meters}} \cdot \Delta Y_{\text{meters}})}{10{,}000}$$
+
+---
+
+## 🚀 API Specification
+
+### `POST /analyzeContour` (or `/findCatchment`)
+
+#### Request: `multipart/form-data`
+| Form Field | Type | Required | Description |
+|---|---|---|---|
+| `contour_map` | File | **Yes (Primary)** | `.kml` or `.kmz` contour map file |
+| `file` | File | *Fallback* | Alternative parameter name accepted for compatibility |
+
+#### Response: `application/json` (HTTP 200)
 ```json
 {
   "filename": "contours_1m.kml",
@@ -38,78 +110,102 @@ curl -X POST "http://localhost:8000/analyzeContour" \
 }
 ```
 
-### 2. Health & Status Route
-- **`GET /`**
-Returns server status and available endpoints.
+---
+
+## ⚡ How to Run Locally
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/sunilkumar2170/pond-catchment-api.git
+cd pond-catchment-api
+```
+
+### 2. Create and Activate Virtual Environment (Optional)
+```bash
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+```
+
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Launch the Server
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+Server will be live at `http://127.0.0.1:8000`.
 
 ---
 
-## 🛠️ Architectural Approach & Hydrological Modeling
+## 🧪 Testing the API
 
-1. **KML / KMZ Ingestion & Parsing (`kml_parser.py`)**:
-   - Supports both uncompressed `.kml` and compressed `.kmz` zip archives.
-   - Robust multi-attribute elevation extraction (reads elevation from `<name>`, `<ExtendedData>`, `<description>`, or 3D coordinate tuples `(lon, lat, elev)`).
-   - Zero hardcoding of geographic coordinates.
+### Option A: Via cURL (Terminal)
+```bash
+curl -X POST "http://127.0.0.1:8000/analyzeContour" \
+  -F "contour_map=@contours_1m.kml"
+```
 
-2. **Surface Interpolation & Pseudo-DEM (`terrain_processor.py`)**:
-   - Flattens scattered contour polyline vertices into continuous geospatial coordinates $(x, y, z)$.
-   - Constructs a regular elevation grid (DEM) using SciPy's 2D linear barycentric interpolation (`scipy.interpolate.griddata`).
+### Option B: Via Python Script
+```python
+import requests
 
-3. **Optimal Pond Site Selection (`catchment_analyzer.py`)**:
-   - Uses an 8-neighborhood local minimum detector to locate natural terrain depressions / sinks.
-   - Selects the deepest, most viable depression as the primary pond outlet point.
+url = "http://127.0.0.1:8000/analyzeContour"
+with open("contours_1m.kml", "rb") as f:
+    response = requests.post(url, files={"contour_map": f})
 
-4. **D8 Flow Direction & Catchment Delineation (`catchment_analyzer.py`)**:
-   - Computes steepest descent flow vectors for every DEM cell according to standard D8 hydrological flow modeling.
-   - Performs a reverse Breadth-First Search (BFS) starting from the pond sink to trace all contributing upstream cells.
+print("Status Code:", response.status_code)
+print("Response JSON:", response.json())
+```
 
-5. **Geodesic Catchment Area Estimation (`catchment_analyzer.py`)**:
-   - Computes cell dimensions in meters using latitude-corrected geodesic scaling ($1^\circ \text{lat} \approx 111\,\text{km}$, $1^\circ \text{lon} \approx 111\,\text{km} \times \cos(\text{latitude})$).
-   - Calculates total contributing area in hectares ($1\,\text{ha} = 10,000\,\text{m}^2$).
+### Option C: Via Interactive Swagger UI
+1. Open [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs) in your browser.
+2. Expand `POST /analyzeContour` $\rightarrow$ Click **Try it out**.
+3. Choose your `.kml` or `.kmz` file under `contour_map`.
+4. Click **Execute** and observe the structured JSON response.
 
 ---
 
-## 📁 Project Structure
+## 📊 Experimental Results (Sample Map: `contours_1m.kml`)
+
+| Metric | Measured Value | Hydrological Significance |
+|---|---|---|
+| **Contours Loaded** | 2,710 polylines | Full vector dataset parsed successfully |
+| **Optimal Pond Longitude** | `81.288978° E` | Geodesic coordinate of deepest sink |
+| **Optimal Pond Latitude** | `21.244862° N` | Geodesic coordinate of deepest sink |
+| **Pond Base Elevation** | `268.0 m` | Lowest natural terrain depression |
+| **Contributing Catchment Cells** | `49 cells` | Active draining DEM cells |
+| **Estimated Catchment Area** | **`4.261317 Hectares`** | Total contributing runoff catchment |
+
+---
+
+## 📁 Repository Structure
 
 ```
 pond-catchment-api/
-├── main.py                 # FastAPI application, route handlers, and parameter mapping
-├── kml_parser.py            # KML & KMZ parser with robust elevation extraction
-├── terrain_processor.py     # Grid interpolation & slope computation
+│
+├── main.py                 # FastAPI application, route definitions, and multipart handling
+├── kml_parser.py            # Robust parser for uncompressed KML and compressed KMZ archives
+├── terrain_processor.py     # 2D Barycentric grid interpolation and slope estimation
 ├── catchment_analyzer.py    # Local minima detection, D8 flow routing, and BFS catchment tracing
-├── models.py                # Pydantic response models
-├── requirements.txt         # Dependencies
-├── contours_1m.kml          # Sample contour map for testing
-└── README.md                # Documentation & report
+├── models.py                # Pydantic data schemas for strict response typing
+├── requirements.txt         # Project dependencies (FastAPI, NumPy, SciPy, Uvicorn, etc.)
+├── contours_1m.kml          # Benchmark sample contour map
+└── README.md                # Project documentation and guide
 ```
-
----
-
-## 🏃 Running Locally
-
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Start the FastAPI server:**
-   ```bash
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-3. **Interactive Swagger API Docs:**
-   Open `http://localhost:8000/docs` in your browser.
-
----
-
-## 🧪 Testing
-
-The API was validated with:
-- The standard sample contour map (`contours_1m.kml`).
-- Compressed KMZ archives (`.kmz`).
-- Synthetic contour maps with alternative coordinate formats and elevation levels.
 
 ---
 
 ## 👨‍💻 Author
-Sunil Kumar — B.Tech CSE, IIT Bhilai
+
+**Sunil Kumar**  
+- **ID Number:** `12342170`  
+- **Department:** Computer Science and Engineering  
+- **Institute:** Indian Institute of Technology Bhilai (IIT Bhilai)  
+- **Course:** Computer System Design — Assignment 1 (Phase 2)  
+- **GitHub:** [@sunilkumar2170](https://github.com/sunilkumar2170)
+

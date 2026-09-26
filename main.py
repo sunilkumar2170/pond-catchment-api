@@ -12,9 +12,14 @@ from catchment_analyzer import (
     grid_index_to_coordinates,
     compute_flow_direction,
     trace_catchment,
-    calculate_catchment_area
+    calculate_catchment_area,
+    estimate_water_volume,
+    get_catchment_polygon,
+    DEFAULT_ANNUAL_RAINFALL_MM,
+    DEFAULT_CURVE_NUMBER
 )
 from models import CatchmentResponse, PondLocation
+from rainfall_service import fetch_annual_rainfall
 
 app = FastAPI(
     title="Pond Catchment Analysis API",
@@ -38,7 +43,6 @@ def read_root():
 
 
 async def process_contour_file(uploaded_file: UploadFile) -> CatchmentResponse:
-    # Save to a temporary file
     suffix = os.path.splitext(uploaded_file.filename)[1] if uploaded_file.filename else ".kml"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
         temp_path = temp_file.name
@@ -62,12 +66,29 @@ async def process_contour_file(uploaded_file: UploadFile) -> CatchmentResponse:
         catchment_cells = trace_catchment(flow_dir, best)
         area_hectares, total_cells = calculate_catchment_area(catchment_cells, grid_x, grid_y)
 
+        # NEW: generate the catchment boundary polygon for map overlay
+        catchment_polygon = get_catchment_polygon(catchment_cells, grid_x, grid_y)
+
+        rainfall_mm = await fetch_annual_rainfall(latitude=float(lat), longitude=float(lon))
+
+        runoff_depth_mm, water_volume_cubic_m = estimate_water_volume(
+            catchment_area_hectares=area_hectares,
+            rainfall_mm=rainfall_mm,
+            curve_number=DEFAULT_CURVE_NUMBER
+        )
+
         return CatchmentResponse(
             filename=uploaded_file.filename or "uploaded_map.kml",
             pond_location=PondLocation(longitude=float(lon), latitude=float(lat)),
             pond_elevation_m=float(grid_z[best[0], best[1]]),
             catchment_area_hectares=float(area_hectares),
-            total_catchment_cells=int(total_cells)
+            total_catchment_cells=int(total_cells),
+            catchment_polygon=catchment_polygon,
+
+            rainfall_used_mm=rainfall_mm,
+            curve_number_used=DEFAULT_CURVE_NUMBER,
+            runoff_depth_mm=runoff_depth_mm,
+            expected_water_volume_cubic_m=water_volume_cubic_m
         )
     finally:
         if os.path.exists(temp_path):
@@ -102,4 +123,4 @@ async def find_catchment(
             status_code=400,
             detail="File is required under field 'contour_map' (or 'file')."
         )
-    return await process_contour_file(upload)
+    return await process_contour_file(upload)
