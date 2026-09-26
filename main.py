@@ -42,6 +42,18 @@ def read_root():
     }
 
 
+# NEW (kept from the old local version): a friendly info message
+# if someone opens /analyzeContour directly in a browser (GET request)
+# instead of sending a POST with a file.
+@app.get("/analyzeContour")
+def analyze_contour_info():
+    return {
+        "message": "Pond Catchment API is running successfully",
+        "method": "Use POST to upload a KML/KMZ file using field name 'contour_map'",
+        "docs": "/docs"
+    }
+
+
 async def process_contour_file(uploaded_file: UploadFile) -> CatchmentResponse:
     suffix = os.path.splitext(uploaded_file.filename)[1] if uploaded_file.filename else ".kml"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -66,7 +78,6 @@ async def process_contour_file(uploaded_file: UploadFile) -> CatchmentResponse:
         catchment_cells = trace_catchment(flow_dir, best)
         area_hectares, total_cells = calculate_catchment_area(catchment_cells, grid_x, grid_y)
 
-        # NEW: generate the catchment boundary polygon for map overlay
         catchment_polygon = get_catchment_polygon(catchment_cells, grid_x, grid_y)
 
         rainfall_mm = await fetch_annual_rainfall(latitude=float(lat), longitude=float(lon))
