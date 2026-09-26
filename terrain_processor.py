@@ -17,6 +17,13 @@ def build_elevation_grid(contours, grid_resolution=70):
     ys = np.array(ys, dtype=np.float32)
     zs = np.array(zs, dtype=np.float32)
 
+    # Subsample if points are extremely dense for sub-second triangulation
+    if len(xs) > 15000:
+        step = len(xs) // 15000 + 1
+        xs = xs[::step]
+        ys = ys[::step]
+        zs = zs[::step]
+
     min_x, max_x = xs.min(), xs.max()
     min_y, max_y = ys.min(), ys.max()
 
@@ -30,6 +37,11 @@ def build_elevation_grid(contours, grid_resolution=70):
     grid_y = grid_y.astype(np.float32)
 
     grid_z = griddata((xs, ys), zs, (grid_x, grid_y), method='linear')
+
+    nan_mask = np.isnan(grid_z)
+    if nan_mask.any():
+        grid_z_near = griddata((xs, ys), zs, (grid_x, grid_y), method='nearest')
+        grid_z[nan_mask] = grid_z_near[nan_mask]
 
     # NEW: griddata internally returns float64 regardless of input dtype,
     # so cast the result back down to float32 to keep the final grid small
