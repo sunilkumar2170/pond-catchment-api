@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 
@@ -26,7 +26,40 @@ def find_local_minima(grid_z, margin=5):
     return minima
 
 
-def pick_best_pond_location(grid_z, minima):
+def pick_best_pond_location(grid_z, minima, grid_x=None, grid_y=None, boundary_polygon=None):
+    if boundary_polygon and len(boundary_polygon) >= 3 and grid_x is not None and grid_y is not None:
+        from shapely.prepared import prep
+        poly = Polygon(boundary_polygon)
+        prep_poly = prep(poly)
+        min_x, min_y, max_x, max_y = poly.bounds
+        
+        # 1. Check if any local minima lie inside the chosen boundary
+        inside_minima = []
+        for r, c in minima:
+            gx, gy = grid_x[r, c], grid_y[r, c]
+            if min_x <= gx <= max_x and min_y <= gy <= max_y:
+                pt = Point(gx, gy)
+                if prep_poly.contains(pt) or prep_poly.touches(pt):
+                    inside_minima.append((r, c))
+
+        if inside_minima:
+            return min(inside_minima, key=lambda idx: grid_z[idx[0], idx[1]])
+
+        # 2. If no strict minimum in boundary, pick lowest elevation grid cell within the boundary
+        rows, cols = grid_z.shape
+        candidates = []
+        for r in range(rows):
+            for c in range(cols):
+                if not np.isnan(grid_z[r, c]):
+                    gx, gy = grid_x[r, c], grid_y[r, c]
+                    if min_x <= gx <= max_x and min_y <= gy <= max_y:
+                        pt = Point(gx, gy)
+                        if prep_poly.contains(pt) or prep_poly.touches(pt):
+                            candidates.append((r, c))
+
+        if candidates:
+            return min(candidates, key=lambda idx: grid_z[idx[0], idx[1]])
+
     if not minima:
         return None
     return min(minima, key=lambda idx: grid_z[idx[0], idx[1]])

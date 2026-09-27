@@ -2,20 +2,15 @@ import httpx
 from datetime import date, timedelta
 
 
-# Fallback value used only if BOTH live API calls fail
 FALLBACK_ANNUAL_RAINFALL_MM = 1100.0
 
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 
-# NEW: simple in-memory cache so repeated requests for the same (rounded)
-# location don't hit the external API again and again during testing/demo.
-# Key: (rounded_lat, rounded_lon) -> rainfall_mm
 _rainfall_cache = {}
 
 
 def _cache_key(latitude: float, longitude: float):
-    # Round to 3 decimal places (~100m precision) so nearby points share a cache entry
     return (round(latitude, 3), round(longitude, 3))
 
 
@@ -74,11 +69,10 @@ async def _fetch_from_nasa_power(client: httpx.AsyncClient, latitude: float, lon
 
 async def fetch_annual_rainfall(latitude: float, longitude: float) -> float:
     """
-    Fetches total rainfall (mm) for the past 365 days at the given
-    coordinates. Tries Open-Meteo first, falls back to NASA POWER if
-    that fails (e.g. rate-limited), and finally falls back to a fixed
-    default value if both external calls fail. Results are cached in
-    memory per location to avoid repeated calls during testing/demo.
+    Fetches total rainfall (mm) with a strict 1.5s timeout.
+    If outbound internet is unavailable (e.g. lab environment),
+    instantly returns standard annual rainfall fallback (1100.0 mm)
+    without blocking the API worker.
     """
     key = _cache_key(latitude, longitude)
     if key in _rainfall_cache:
@@ -86,21 +80,18 @@ async def fetch_annual_rainfall(latitude: float, longitude: float) -> float:
 
     rainfall_mm = None
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        # Try Open-Meteo first
-        try:
-            rainfall_mm = await _fetch_from_open_meteo(client, latitude, longitude)
-        except Exception as e:
-            print(f"OPEN-METEO ERROR: {e}")
-
-        # If Open-Meteo failed, try NASA POWER as a backup source
-        if rainfall_mm is None:
+    try:
+        async with httpx.AsyncClient(timeout=1.5) as client:
             try:
-                rainfall_mm = await _fetch_from_nasa_power(client, latitude, longitude)
-            except Exception as e:
-                print(f"NASA POWER ERROR: {e}")
+                rainfall_mm = await _fetch_from_open_meteo(client, latitude, longitude)
+            except Exception:
+                try:
+                    rainfall_mm = await _fetch_from_nasa_power(client, latitude, longitude)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
-    # If both external sources failed, use the fixed fallback
     if rainfall_mm is None:
         rainfall_mm = FALLBACK_ANNUAL_RAINFALL_MM
 
